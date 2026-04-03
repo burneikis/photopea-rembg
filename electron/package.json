@@ -2,6 +2,11 @@
   "name": "rembg-photopea",
   "version": "1.0.0",
   "description": "Remove backgrounds in Photopea using rembg",
+  "homepage": "https://github.com/sponge/photopea-rembg",
+  "author": {
+    "name": "sponge",
+    "email": "sponge@sponge.world"
+  },
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -38,6 +43,7 @@
       }
     ],
     "linux": {
+      "maintainer": "sponge <sponge@sponge.world>",
       "target": ["AppImage", "deb"],
       "category": "Graphics",
       "icon": "icon.svg"
