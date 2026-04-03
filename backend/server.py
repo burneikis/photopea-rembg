@@ -5,10 +5,12 @@ Also serves the plugin UI so only a single server is needed.
 
 import io
 import os
-from fastapi import FastAPI, File, UploadFile
+from typing import Optional
+
+from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
-from rembg import remove
+from rembg import remove, new_session
 from PIL import Image
 
 app = FastAPI(title="rembg server for Photopea")
@@ -24,13 +26,48 @@ app.add_middleware(
 PLUGIN_DIR = os.path.join(os.path.dirname(__file__), "..", "plugin")
 
 
+# Cache sessions so models aren't reloaded on every request
+_session_cache: dict[str, object] = {}
+
+
+def _get_session(model: str):
+    if model not in _session_cache:
+        _session_cache[model] = new_session(model)
+    return _session_cache[model]
+
+
 @app.post("/api/remove")
-async def remove_background(file: UploadFile = File(...)):
+async def remove_background(
+    file: UploadFile = File(...),
+    model: str = Form("u2net"),
+    alpha_matting: bool = Form(False),
+    alpha_matting_foreground_threshold: int = Form(240),
+    alpha_matting_background_threshold: int = Form(10),
+    alpha_matting_erode_size: int = Form(10),
+    post_process_mask: bool = Form(False),
+    bgcolor: Optional[str] = Form(None),
+):
     """Accept an image, remove its background, return transparent PNG."""
     input_bytes = await file.read()
     input_image = Image.open(io.BytesIO(input_bytes)).convert("RGBA")
 
-    output_image = remove(input_image)
+    # Parse bgcolor string "r,g,b,a" into tuple if provided
+    bg = None
+    if bgcolor:
+        parts = [int(x.strip()) for x in bgcolor.split(",")]
+        bg = tuple(parts[:4]) if len(parts) >= 4 else None
+
+    session = _get_session(model)
+    output_image = remove(
+        input_image,
+        session=session,
+        alpha_matting=alpha_matting,
+        alpha_matting_foreground_threshold=alpha_matting_foreground_threshold,
+        alpha_matting_background_threshold=alpha_matting_background_threshold,
+        alpha_matting_erode_size=alpha_matting_erode_size,
+        post_process_mask=post_process_mask,
+        bgcolor=bg,
+    )
 
     buf = io.BytesIO()
     output_image.save(buf, format="PNG")
@@ -40,12 +77,22 @@ async def remove_background(file: UploadFile = File(...)):
 
 
 @app.post("/api/mask")
-async def generate_mask(file: UploadFile = File(...)):
+async def generate_mask(
+    file: UploadFile = File(...),
+    model: str = Form("u2net"),
+    post_process_mask: bool = Form(False),
+):
     """Accept an image, return only the foreground mask as a grayscale PNG."""
     input_bytes = await file.read()
     input_image = Image.open(io.BytesIO(input_bytes)).convert("RGBA")
 
-    mask_image = remove(input_image, only_mask=True)
+    session = _get_session(model)
+    mask_image = remove(
+        input_image,
+        session=session,
+        only_mask=True,
+        post_process_mask=post_process_mask,
+    )
 
     buf = io.BytesIO()
     mask_image.save(buf, format="PNG")

@@ -35,7 +35,9 @@
       color: #aaa;
     }
 
-    input[type="text"] {
+    input[type="text"],
+    input[type="number"],
+    input[type="color"] {
       background: #3a3a3a;
       border: 1px solid #555;
       border-radius: 4px;
@@ -44,9 +46,66 @@
       font-size: 13px;
     }
 
-    input[type="text"]:focus {
+    input[type="text"]:focus,
+    input[type="number"]:focus {
       outline: none;
       border-color: #6ea8fe;
+    }
+
+    input[type="number"] {
+      width: 80px;
+    }
+
+    .section {
+      border-top: 1px solid #444;
+      padding-top: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .section-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: #999;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .inline-field {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .inline-field label {
+      font-size: 13px;
+      color: #ccc;
+      flex-shrink: 0;
+    }
+
+    .color-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .color-row input[type="color"] {
+      width: 32px;
+      height: 28px;
+      padding: 2px;
+      cursor: pointer;
+    }
+
+    .collapsible {
+      overflow: hidden;
+      max-height: 0;
+      transition: max-height 0.3s ease;
+    }
+
+    .collapsible.open {
+      max-height: 500px;
     }
 
     select {
@@ -170,6 +229,27 @@
   <h2>🪄 Remove Background</h2>
 
   <div class="field">
+    <label for="model">Model</label>
+    <select id="model">
+      <option value="u2net" selected>u2net (general purpose)</option>
+      <option value="u2netp">u2netp (lightweight)</option>
+      <option value="u2net_human_seg">u2net_human_seg (people)</option>
+      <option value="u2net_cloth_seg">u2net_cloth_seg (clothing)</option>
+      <option value="isnet-general-use">isnet-general-use</option>
+      <option value="isnet-anime">isnet-anime</option>
+      <option value="silueta">silueta</option>
+      <option value="birefnet-general">birefnet-general</option>
+      <option value="birefnet-general-lite">birefnet-general-lite</option>
+      <option value="birefnet-portrait">birefnet-portrait</option>
+      <option value="birefnet-dis">birefnet-dis</option>
+      <option value="birefnet-hrsod">birefnet-hrsod</option>
+      <option value="birefnet-cod">birefnet-cod (camouflaged)</option>
+      <option value="birefnet-massive">birefnet-massive</option>
+      <option value="bria-rmbg">bria-rmbg</option>
+    </select>
+  </div>
+
+  <div class="field">
     <label for="mode">Apply to</label>
     <select id="mode">
       <option value="layer">Active Layer</option>
@@ -183,6 +263,62 @@
       <span class="slider"></span>
     </label>
     <label for="mask-mode">Mask mode (apply as layer mask)</label>
+  </div>
+
+  <!-- Advanced Options -->
+  <div class="section">
+    <span class="section-title">Advanced</span>
+
+  <div class="toggle-row">
+    <label class="toggle">
+      <input type="checkbox" id="post-process" checked>
+      <span class="slider"></span>
+    </label>
+    <label for="post-process">Post-process mask (smoother edges)</label>
+  </div>
+
+  <!-- Alpha Matting -->
+  <div>
+    <div class="toggle-row">
+      <label class="toggle">
+        <input type="checkbox" id="alpha-matting" onchange="document.getElementById('am-options').classList.toggle('open', this.checked)">
+        <span class="slider"></span>
+      </label>
+      <label for="alpha-matting">Alpha matting (refine edges)</label>
+    </div>
+    <div id="am-options" class="collapsible">
+      <div class="inline-field" style="margin-top:6px">
+        <label for="am-fg">Foreground threshold</label>
+        <input type="number" id="am-fg" value="240" min="0" max="255">
+      </div>
+      <div class="inline-field" style="margin-top:4px">
+        <label for="am-bg">Background threshold</label>
+        <input type="number" id="am-bg" value="10" min="0" max="255">
+      </div>
+      <div class="inline-field" style="margin-top:4px">
+        <label for="am-erode">Erode size</label>
+        <input type="number" id="am-erode" value="10" min="0" max="100">
+      </div>
+    </div>
+  </div>
+
+  <!-- Background Color -->
+  <div>
+    <div class="toggle-row">
+      <label class="toggle">
+        <input type="checkbox" id="bgcolor-enable" onchange="document.getElementById('bgcolor-options').classList.toggle('open', this.checked)">
+        <span class="slider"></span>
+      </label>
+      <label for="bgcolor-enable">Replace background with color</label>
+    </div>
+    <div id="bgcolor-options" class="collapsible">
+      <div class="color-row" style="margin-top:6px">
+        <input type="color" id="bgcolor-picker" value="#ffffff">
+        <label style="font-size:13px;color:#ccc">Background color</label>
+      </div>
+    </div>
+  </div>
+
   </div>
 
   <button id="btn-remove" onclick="removeBackground()">Remove Background</button>
@@ -276,6 +412,14 @@
       const serverUrl = window.location.origin;
       const mode = document.getElementById("mode").value;
       const maskMode = document.getElementById("mask-mode").checked;
+      const model = document.getElementById("model").value;
+      const postProcess = document.getElementById("post-process").checked;
+      const alphaMatting = document.getElementById("alpha-matting").checked;
+      const amFg = document.getElementById("am-fg").value;
+      const amBg = document.getElementById("am-bg").value;
+      const amErode = document.getElementById("am-erode").value;
+      const bgcolorEnabled = document.getElementById("bgcolor-enable").checked;
+      const bgcolorHex = document.getElementById("bgcolor-picker").value;
 
       btn.disabled = true;
       status.className = "";
@@ -323,6 +467,24 @@
         // ── Step 4: Send to rembg server ──
         const formData = new FormData();
         formData.append("file", blob, "image.png");
+        formData.append("model", model);
+        formData.append("post_process_mask", postProcess);
+
+        if (!maskMode) {
+          formData.append("alpha_matting", alphaMatting);
+          if (alphaMatting) {
+            formData.append("alpha_matting_foreground_threshold", amFg);
+            formData.append("alpha_matting_background_threshold", amBg);
+            formData.append("alpha_matting_erode_size", amErode);
+          }
+          if (bgcolorEnabled) {
+            // Convert hex #rrggbb to "r,g,b,255"
+            const r = parseInt(bgcolorHex.slice(1,3), 16);
+            const g = parseInt(bgcolorHex.slice(3,5), 16);
+            const b = parseInt(bgcolorHex.slice(5,7), 16);
+            formData.append("bgcolor", `${r},${g},${b},255`);
+          }
+        }
 
         const endpoint = maskMode ? "/api/mask" : "/api/remove";
         const resp = await fetch(`${serverUrl}${endpoint}`, {
