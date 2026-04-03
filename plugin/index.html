@@ -405,6 +405,58 @@
 
     // ── Main action ──────────────────────────────────────────
 
+    // ── Config persistence via localStorage ─────────────────
+    const CONFIG_KEY = 'rembg_config';
+
+    function saveConfig() {
+      const config = {
+        model: document.getElementById('model').value,
+        mode: document.getElementById('mode').value,
+        maskMode: document.getElementById('mask-mode').checked,
+        postProcess: document.getElementById('post-process').checked,
+        alphaMatting: document.getElementById('alpha-matting').checked,
+        amFg: document.getElementById('am-fg').value,
+        amBg: document.getElementById('am-bg').value,
+        amErode: document.getElementById('am-erode').value,
+        bgcolorEnabled: document.getElementById('bgcolor-enable').checked,
+        bgcolorHex: document.getElementById('bgcolor-picker').value,
+      };
+      try { localStorage.setItem(CONFIG_KEY, JSON.stringify(config)); } catch(e) {}
+    }
+
+    function loadConfig() {
+      try {
+        const raw = localStorage.getItem(CONFIG_KEY);
+        if (!raw) return;
+        const c = JSON.parse(raw);
+        if (c.model) document.getElementById('model').value = c.model;
+        if (c.mode) document.getElementById('mode').value = c.mode;
+        if (c.maskMode !== undefined) document.getElementById('mask-mode').checked = c.maskMode;
+        if (c.postProcess !== undefined) document.getElementById('post-process').checked = c.postProcess;
+        if (c.alphaMatting !== undefined) {
+          document.getElementById('alpha-matting').checked = c.alphaMatting;
+          document.getElementById('am-options').classList.toggle('open', c.alphaMatting);
+        }
+        if (c.amFg !== undefined) document.getElementById('am-fg').value = c.amFg;
+        if (c.amBg !== undefined) document.getElementById('am-bg').value = c.amBg;
+        if (c.amErode !== undefined) document.getElementById('am-erode').value = c.amErode;
+        if (c.bgcolorEnabled !== undefined) {
+          document.getElementById('bgcolor-enable').checked = c.bgcolorEnabled;
+          document.getElementById('bgcolor-options').classList.toggle('open', c.bgcolorEnabled);
+        }
+        if (c.bgcolorHex) document.getElementById('bgcolor-picker').value = c.bgcolorHex;
+      } catch(e) {}
+    }
+
+    // Restore config on load
+    loadConfig();
+
+    // Save config on any change
+    document.querySelectorAll('select, input').forEach(el => {
+      el.addEventListener('change', saveConfig);
+      el.addEventListener('input', saveConfig);
+    });
+
     async function removeBackground() {
       const btn = document.getElementById("btn-remove");
       const status = document.getElementById("status");
