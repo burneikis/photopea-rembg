@@ -58,6 +58,61 @@
       font-size: 13px;
     }
 
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .toggle-row label {
+      font-size: 13px;
+      color: #ccc;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .toggle {
+      position: relative;
+      width: 36px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+
+    .toggle input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .toggle .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: #555;
+      border-radius: 20px;
+      transition: background 0.2s;
+    }
+
+    .toggle .slider::before {
+      content: "";
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      left: 3px;
+      bottom: 3px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+
+    .toggle input:checked + .slider {
+      background: #4a7eff;
+    }
+
+    .toggle input:checked + .slider::before {
+      transform: translateX(16px);
+    }
+
     button {
       background: #4a7eff;
       color: #fff;
@@ -125,6 +180,14 @@
       <option value="layer">Active Layer</option>
       <option value="document">Entire Document</option>
     </select>
+  </div>
+
+  <div class="toggle-row">
+    <label class="toggle">
+      <input type="checkbox" id="mask-mode">
+      <span class="slider"></span>
+    </label>
+    <label for="mask-mode">Mask mode (apply as layer mask)</label>
   </div>
 
   <button id="btn-remove" onclick="removeBackground()">Remove Background</button>
@@ -216,6 +279,7 @@
       const status = document.getElementById("status");
       const serverUrl = document.getElementById("server-url").value.replace(/\/+$/, "");
       const mode = document.getElementById("mode").value;
+      const maskMode = document.getElementById("mask-mode").checked;
 
       btn.disabled = true;
       status.className = "";
@@ -225,6 +289,13 @@
         // ── Step 1: Remember the original document name ──
         const nameResult = await runScript('app.echoToOE(app.activeDocument.name);');
         const origDocName = nameResult[0];
+
+        // Also remember the active layer name/index for mask mode
+        let origLayerName = null;
+        if (maskMode) {
+          const layerResult = await runScript('app.echoToOE(app.activeDocument.activeLayer.name);');
+          origLayerName = layerResult[0];
+        }
 
         // ── Step 2: If "layer" mode, isolate the active layer into a temp doc ──
         if (mode === "layer") {
@@ -250,13 +321,15 @@
           await runScript('app.activeDocument.close(SaveOptions.DONOTSAVECHANGES);');
         }
 
-        status.innerHTML = `<span class="spinner"></span> Removing background (${(blob.size / 1024).toFixed(0)} KB)…`;
+        const actionLabel = maskMode ? "Generating mask" : "Removing background";
+        status.innerHTML = `<span class="spinner"></span> ${actionLabel} (${(blob.size / 1024).toFixed(0)} KB)…`;
 
         // ── Step 4: Send to rembg server ──
         const formData = new FormData();
         formData.append("file", blob, "image.png");
 
-        const resp = await fetch(`${serverUrl}/api/remove`, {
+        const endpoint = maskMode ? "/api/mask" : "/api/remove";
+        const resp = await fetch(`${serverUrl}${endpoint}`, {
           method: "POST",
           body: formData,
         });
@@ -269,33 +342,40 @@
         const resultBuffer = await resp.arrayBuffer();
         status.innerHTML = '<span class="spinner"></span> Loading result into Photopea…';
 
-        // ── Step 5: Load the result PNG — opens as a new document (preserves alpha) ──
-        await loadAsset(resultBuffer);
-        await pause(200);
+        if (maskMode) {
+          // ── MASK MODE: Apply result as a layer mask ──
+          await applyAsMask(resultBuffer, origDocName, origLayerName);
+          status.className = "success";
+          status.textContent = "✅ Layer mask applied!";
+        } else {
+          // ── NORMAL MODE: Replace with transparent result ──
+          // Step 5: Load the result PNG — opens as a new document (preserves alpha)
+          await loadAsset(resultBuffer);
+          await pause(200);
 
-        // ── Step 6: Move the layer from the new doc into the original doc ──
-        // Using duplicate() preserves transparency (unlike copy/paste or flatten).
-        await runScript(`
-          var newDoc = app.activeDocument;
-          var origDoc = null;
-          for (var i = 0; i < app.documents.length; i++) {
-            if (app.documents[i].name === "${origDocName.replace(/"/g, '\\"')}") {
-              origDoc = app.documents[i];
-              break;
+          // Step 6: Move the layer from the new doc into the original doc
+          await runScript(`
+            var newDoc = app.activeDocument;
+            var origDoc = null;
+            for (var i = 0; i < app.documents.length; i++) {
+              if (app.documents[i].name === "${origDocName.replace(/"/g, '\\"')}") {
+                origDoc = app.documents[i];
+                break;
+              }
             }
-          }
-          if (origDoc && newDoc !== origDoc) {
-            newDoc.activeLayer.name = "rembg result";
-            newDoc.activeLayer.duplicate(origDoc, ElementPlacement.PLACEATBEGINNING);
-            newDoc.close(SaveOptions.DONOTSAVECHANGES);
-            app.activeDocument = origDoc;
-          } else {
-            app.activeDocument.activeLayer.name = "rembg result";
-          }
-        `);
+            if (origDoc && newDoc !== origDoc) {
+              newDoc.activeLayer.name = "rembg result";
+              newDoc.activeLayer.duplicate(origDoc, ElementPlacement.PLACEATBEGINNING);
+              newDoc.close(SaveOptions.DONOTSAVECHANGES);
+              app.activeDocument = origDoc;
+            } else {
+              app.activeDocument.activeLayer.name = "rembg result";
+            }
+          `);
 
-        status.className = "success";
-        status.textContent = "✅ Background removed! New layer added.";
+          status.className = "success";
+          status.textContent = "✅ Background removed! New layer added.";
+        }
       } catch (err) {
         console.error(err);
         status.className = "error";
@@ -303,6 +383,103 @@
       } finally {
         btn.disabled = false;
       }
+    }
+
+    /**
+     * Apply a grayscale mask image as a layer mask on the active layer.
+     *
+     * Workflow:
+     *  1. Open mask PNG in Photopea (new doc)
+     *  2. Select All → Copy
+     *  3. Close the mask doc
+     *  4. Switch back to original doc / layer
+     *  5. Add a "Reveal All" raster layer mask (Photoshop ActionDescriptor)
+     *  6. Target the mask channel for editing
+     *  7. Paste the grayscale mask
+     *  8. Deselect and return to RGB composite
+     */
+    async function applyAsMask(maskBuffer, origDocName, origLayerName) {
+      // 1. Open the mask image in Photopea
+      await loadAsset(maskBuffer);
+      await pause(300);
+
+      // 2. Select All and Copy the mask content
+      await runScript(`
+        app.activeDocument.selection.selectAll();
+        app.activeDocument.activeLayer.copy();
+      `);
+      await pause(100);
+
+      // 3. Close the mask document
+      await runScript('app.activeDocument.close(SaveOptions.DONOTSAVECHANGES);');
+      await pause(100);
+
+      // 4. Ensure we're on the correct document and layer
+      await runScript(`
+        var origDoc = null;
+        for (var i = 0; i < app.documents.length; i++) {
+          if (app.documents[i].name === "${origDocName.replace(/"/g, '\\"')}") {
+            origDoc = app.documents[i];
+            break;
+          }
+        }
+        if (origDoc) {
+          app.activeDocument = origDoc;
+        }
+        // Re-select the original layer by name
+        var doc = app.activeDocument;
+        function findLayer(layers, name) {
+          for (var j = 0; j < layers.length; j++) {
+            if (layers[j].name === "${(origLayerName || '').replace(/"/g, '\\"')}") return layers[j];
+            if (layers[j].layers) {
+              var found = findLayer(layers[j].layers, name);
+              if (found) return found;
+            }
+          }
+          return null;
+        }
+        var targetLayer = findLayer(doc.layers, "${(origLayerName || '').replace(/"/g, '\\"')}");
+        if (targetLayer) doc.activeLayer = targetLayer;
+      `);
+      await pause(100);
+
+      // 5. Add a "Reveal All" layer mask using Photoshop-compatible ActionDescriptor
+      await runScript(`
+        var desc = new ActionDescriptor();
+        desc.putClass(charIDToTypeID("Nw  "), charIDToTypeID("Chnl"));
+        var ref = new ActionReference();
+        ref.putEnumerated(charIDToTypeID("Chnl"), charIDToTypeID("Chnl"), charIDToTypeID("Msk "));
+        desc.putReference(charIDToTypeID("At  "), ref);
+        desc.putEnumerated(charIDToTypeID("Usng"), charIDToTypeID("UsrM"), charIDToTypeID("RvlA"));
+        executeAction(charIDToTypeID("Mk  "), desc, DialogModes.NO);
+      `);
+      await pause(100);
+
+      // 6. Target the mask channel for editing
+      await runScript(`
+        var ref = new ActionReference();
+        ref.putEnumerated(charIDToTypeID("Chnl"), charIDToTypeID("Chnl"), charIDToTypeID("Msk "));
+        var desc = new ActionDescriptor();
+        desc.putReference(charIDToTypeID("null"), ref);
+        desc.putBoolean(charIDToTypeID("MkVs"), false);
+        executeAction(charIDToTypeID("slct"), desc, DialogModes.NO);
+      `);
+      await pause(100);
+
+      // 7. Paste the mask content
+      await runScript('app.activeDocument.paste();');
+      await pause(100);
+
+      // 8. Deselect and switch back to RGB composite
+      await runScript(`
+        app.activeDocument.selection.deselect();
+        var ref = new ActionReference();
+        ref.putEnumerated(charIDToTypeID("Chnl"), charIDToTypeID("Chnl"), charIDToTypeID("RGB "));
+        var desc = new ActionDescriptor();
+        desc.putReference(charIDToTypeID("null"), ref);
+        executeAction(charIDToTypeID("slct"), desc, DialogModes.NO);
+      `);
+      await pause(100);
     }
   </script>
 </body>

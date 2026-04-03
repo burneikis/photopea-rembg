@@ -35,6 +35,21 @@ async def remove_background(file: UploadFile = File(...)):
     return Response(content=buf.getvalue(), media_type="image/png")
 
 
+@app.post("/api/mask")
+async def generate_mask(file: UploadFile = File(...)):
+    """Accept an image, return only the foreground mask as a grayscale PNG."""
+    input_bytes = await file.read()
+    input_image = Image.open(io.BytesIO(input_bytes)).convert("RGBA")
+
+    mask_image = remove(input_image, only_mask=True)
+
+    buf = io.BytesIO()
+    mask_image.save(buf, format="PNG")
+    buf.seek(0)
+
+    return Response(content=buf.getvalue(), media_type="image/png")
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
