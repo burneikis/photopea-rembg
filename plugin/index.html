@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>rembg – Remove Background</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #2c2c2c;
+      color: #e0e0e0;
+      padding: 16px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    h2 {
+      font-size: 15px;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    label {
+      font-size: 12px;
+      color: #aaa;
+    }
+
+    input[type="text"] {
+      background: #3a3a3a;
+      border: 1px solid #555;
+      border-radius: 4px;
+      color: #e0e0e0;
+      padding: 6px 8px;
+      font-size: 13px;
+    }
+
+    input[type="text"]:focus {
+      outline: none;
+      border-color: #6ea8fe;
+    }
+
+    select {
+      background: #3a3a3a;
+      border: 1px solid #555;
+      border-radius: 4px;
+      color: #e0e0e0;
+      padding: 6px 8px;
+      font-size: 13px;
+    }
+
+    button {
+      background: #4a7eff;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 10px 16px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    button:hover:not(:disabled) {
+      background: #3a6aee;
+    }
+
+    button:disabled {
+      background: #555;
+      cursor: not-allowed;
+    }
+
+    #status {
+      font-size: 12px;
+      color: #aaa;
+      min-height: 18px;
+    }
+
+    #status.error {
+      color: #ff6b6b;
+    }
+
+    #status.success {
+      color: #69db7c;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid #666;
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+
+  <h2>🪄 Remove Background</h2>
+
+  <div class="field">
+    <label for="server-url">rembg Server URL</label>
+    <input type="text" id="server-url" value="https://localhost:7001" placeholder="https://localhost:7001">
+  </div>
+
+  <div class="field">
+    <label for="mode">Apply to</label>
+    <select id="mode">
+      <option value="layer">Active Layer</option>
+      <option value="document">Entire Document</option>
+    </select>
+  </div>
+
+  <button id="btn-remove" onclick="removeBackground()">Remove Background</button>
+
+  <div id="status"></div>
+
+  <script>
+    // ── Photopea communication layer ──────────────────────────
+    // Based on yikuansun/PhotopeaAPI patterns.
+    //
+    // From inside a plugin iframe, window.parent is the Photopea window.
+    // postMessage(scriptString) runs a script; Photopea replies with
+    // zero or more data messages followed by a final "done" string.
+    // postMessage(ArrayBuffer) loads a file (image, brush, font, etc.)
+    // and Photopea replies with "done" when finished.
+
+    const pea = window.parent;
+
+    /**
+     * Small delay — avoids race conditions when chaining commands.
+     */
+    function pause(ms = 30) {
+      return new Promise(r => setTimeout(r, ms));
+    }
+
+    /**
+     * Run a Photopea script string. Returns an array of all outputs
+     * Photopea sent before the final "done".
+     */
+    function runScript(script) {
+      return new Promise((resolve) => {
+        const outputs = [];
+        function handler(e) {
+          // Only handle messages from the Photopea parent window
+          if (e.source !== pea) return;
+          if (e.data === "done") {
+            window.removeEventListener("message", handler);
+            resolve(outputs);
+          } else {
+            outputs.push(e.data);
+          }
+        }
+        window.addEventListener("message", handler);
+        pea.postMessage(script, "*");
+      });
+    }
+
+    /**
+     * Send an ArrayBuffer to Photopea (opens it as a new document).
+     * Waits for "done".
+     */
+    function loadAsset(arrayBuffer) {
+      return new Promise((resolve) => {
+        function handler(e) {
+          if (e.source !== pea) return;
+          if (e.data === "done") {
+            window.removeEventListener("message", handler);
+            resolve();
+          }
+        }
+        window.addEventListener("message", handler);
+        pea.postMessage(arrayBuffer, "*");
+      });
+    }
+
+    /**
+     * Export the active document as PNG. Returns an ArrayBuffer.
+     * Retries if Photopea returns only "done" without data (can happen).
+     */
+    async function exportPNG() {
+      let buffer = null;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        await pause();
+        const data = await runScript('app.activeDocument.saveToOE("png");');
+        // The ArrayBuffer is typically the first item; "done" has already
+        // been stripped by runScript, but sometimes the array is empty
+        // if Photopea wasn't ready yet.
+        buffer = data.find(d => d instanceof ArrayBuffer);
+        if (buffer) return buffer;
+        await pause(200);
+      }
+      throw new Error("Failed to export image from Photopea (no ArrayBuffer received after retries)");
+    }
+
+    // ── Main action ──────────────────────────────────────────
+
+    async function removeBackground() {
+      const btn = document.getElementById("btn-remove");
+      const status = document.getElementById("status");
+      const serverUrl = document.getElementById("server-url").value.replace(/\/+$/, "");
+      const mode = document.getElementById("mode").value;
+
+      btn.disabled = true;
+      status.className = "";
+      status.innerHTML = '<span class="spinner"></span> Exporting image from Photopea…';
+
+      try {
+        // ── Step 1: If "layer" mode, isolate the active layer into a temp doc ──
+        if (mode === "layer") {
+          await runScript(`
+            var doc = app.activeDocument;
+            var layer = doc.activeLayer;
+            var tmpDoc = app.documents.add(doc.width, doc.height, doc.resolution, "rembg_tmp", NewDocumentMode.RGB);
+            app.activeDocument = doc;
+            layer.duplicate(tmpDoc, ElementPlacement.INSIDE);
+            app.activeDocument = tmpDoc;
+            if (tmpDoc.layers.length > 1) {
+              tmpDoc.layers[tmpDoc.layers.length - 1].remove();
+            }
+          `);
+        }
+
+        // ── Step 2: Export as PNG ──
+        const pngBuffer = await exportPNG();
+        const blob = new Blob([pngBuffer], { type: "image/png" });
+
+        // Close temp doc if we made one
+        if (mode === "layer") {
+          await runScript('app.activeDocument.close(SaveOptions.DONOTSAVECHANGES);');
+        }
+
+        status.innerHTML = `<span class="spinner"></span> Removing background (${(blob.size / 1024).toFixed(0)} KB)…`;
+
+        // ── Step 3: Send to rembg server ──
+        const formData = new FormData();
+        formData.append("file", blob, "image.png");
+
+        const resp = await fetch(`${serverUrl}/api/remove`, {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!resp.ok) {
+          const text = await resp.text().catch(() => "");
+          throw new Error(`Server error: ${resp.status} ${resp.statusText} ${text}`);
+        }
+
+        const resultBuffer = await resp.arrayBuffer();
+        status.innerHTML = '<span class="spinner"></span> Loading result into Photopea…';
+
+        // ── Step 4: Get the current layer count so we can detect when the new layer arrives ──
+        let oldCount = "done";
+        while (oldCount === "done") {
+          const r = await runScript('app.echoToOE(app.activeDocument.layers.length);');
+          oldCount = r[0];
+        }
+
+        // ── Step 5: Load the result image — this opens it as a new document ──
+        await loadAsset(resultBuffer);
+        await pause(100);
+
+        // ── Step 6: Move the loaded image into the original doc as a new layer ──
+        // After loadAsset, the new document is active. We need to flatten it,
+        // select all, copy, close it, then paste into the original doc.
+        await runScript(`
+          var newDoc = app.activeDocument;
+          newDoc.flatten();
+          newDoc.selection.selectAll();
+          newDoc.activeLayer.copy();
+          newDoc.close(SaveOptions.DONOTSAVECHANGES);
+          app.activeDocument.paste();
+          app.activeDocument.activeLayer.name = "rembg result";
+        `);
+
+        status.className = "success";
+        status.textContent = "✅ Background removed! New layer added.";
+      } catch (err) {
+        console.error(err);
+        status.className = "error";
+        status.textContent = "❌ " + err.message;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>
