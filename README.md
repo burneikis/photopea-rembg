@@ -43,6 +43,90 @@ Photopea (browser)
        └─ GET  /health     → health check
 ```
 
+## One-Click Launcher (Linux)
+
+Instead of running `python run.py` manually each time, use the included launcher:
+
+### Option 1: Desktop shortcut
+
+```bash
+# Copy the .desktop file to your desktop or applications
+cp rembg-photopea.desktop ~/.local/share/applications/
+```
+
+Then find **"Rembg for Photopea"** in your app launcher — it starts the backend and opens Photopea automatically.
+
+### Option 2: Run the script directly
+
+```bash
+./launch.sh        # start server + open Photopea
+./launch.sh stop   # stop the background server
+```
+
+The server runs in the background and is reused across launches. Logs are written to `.server.log`.
+
+### Option 3: Auto-start on login (systemd)
+
+To keep the server always running so a browser bookmark just works:
+
+```bash
+mkdir -p ~/.config/systemd/user
+
+cat > ~/.config/systemd/user/rembg-photopea.service << EOF
+[Unit]
+Description=rembg server for Photopea
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=$(pwd)
+ExecStart=$(pwd)/.venv/bin/python $(pwd)/backend/server.py --port 7001
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+EOF
+
+systemctl --user daemon-reload
+systemctl --user enable --now rembg-photopea
+```
+
+Then just bookmark the Photopea URL (printed by `python run.py`) and click it anytime.
+
+## Electron App (Desktop)
+
+Run Photopea + rembg as a standalone desktop app — no terminal, no browser, no manual server start.
+
+### Dev mode (quick test)
+
+```bash
+# Make sure the venv is set up first
+python run.py &   # or let it stay running
+
+cd electron
+npm install
+npm start
+```
+
+### Build distributable
+
+```bash
+cd electron
+npm install
+npm run dist:linux   # → AppImage + .deb in electron/dist/
+# or: npm run dist:win / npm run dist:mac
+```
+
+This will:
+1. Bundle the Python backend into a standalone binary with PyInstaller
+2. Package everything into an Electron app (AppImage/deb/dmg/exe)
+
+The resulting app:
+- Shows a splash screen while the backend starts
+- Automatically accepts the self-signed cert (no browser warning)
+- Opens Photopea with the plugin pre-loaded
+- Stops the backend when you close the window
+
 ## Production Deployment
 
 For real (non-local) use:
@@ -55,10 +139,18 @@ For real (non-local) use:
 
 ```
 ├── run.py                     # One-command launcher (start here)
+├── launch.sh                  # Background launcher (start server + open browser)
+├── rembg-photopea.desktop     # Linux .desktop shortcut
 ├── backend/
 │   ├── server.py              # FastAPI server (API + plugin UI)
 │   └── requirements.txt
 ├── plugin/
 │   └── index.html             # Plugin UI (runs inside Photopea iframe)
+├── electron/
+│   ├── main.js                # Electron main process
+│   ├── preload.js             # Preload (sandboxed)
+│   ├── splash.html            # Loading screen
+│   ├── build-backend.sh       # PyInstaller build script
+│   └── package.json           # Electron + electron-builder config
 └── README.md
 ```

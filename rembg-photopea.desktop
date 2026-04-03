@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Rembg for Photopea
+Comment=Remove backgrounds in Photopea using rembg
+Exec=bash -c '"$(dirname "%k")/launch.sh"'
+Icon=applications-graphics
+Terminal=false
+Type=Application
+Categories=Graphics;

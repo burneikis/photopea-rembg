@@ -5,6 +5,7 @@ Also serves the plugin UI so only a single server is needed.
 
 import io
 import os
+import sys
 from typing import Optional
 
 from fastapi import FastAPI, File, Form, UploadFile
@@ -23,7 +24,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-PLUGIN_DIR = os.path.join(os.path.dirname(__file__), "..", "plugin")
+# Support PyInstaller bundled mode
+_BASE_DIR = getattr(sys, '_MEIPASS', os.path.dirname(__file__))
+PLUGIN_DIR = os.path.join(_BASE_DIR, "plugin") if hasattr(sys, '_MEIPASS') else os.path.join(os.path.dirname(__file__), "..", "plugin")
 
 
 # Cache sessions so models aren't reloaded on every request
@@ -129,10 +132,11 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=7001)
     args = parser.parse_args()
 
-    cert_dir = os.path.join(os.path.dirname(__file__), "..", ".certs")
+    # Support env vars for packaged (Electron/PyInstaller) mode
+    cert_dir = os.environ.get("SSL_CERT_DIR") or os.path.join(os.path.dirname(__file__), "..", ".certs")
     os.makedirs(cert_dir, exist_ok=True)
-    cert_file = os.path.join(cert_dir, "cert.pem")
-    key_file = os.path.join(cert_dir, "key.pem")
+    cert_file = os.environ.get("SSL_CERTFILE") or os.path.join(cert_dir, "cert.pem")
+    key_file = os.environ.get("SSL_KEYFILE") or os.path.join(cert_dir, "key.pem")
 
     if not (os.path.exists(cert_file) and os.path.exists(key_file)):
         print("Generating self-signed certificate…")

@@ -1,3 +1,4 @@
 .certs
 .venv
 __pycache__
+electron/node_modules
