@@ -112,6 +112,12 @@ async def serve_plugin():
     return FileResponse(os.path.join(PLUGIN_DIR, "index.html"), media_type="text/html")
 
 
+@app.get("/icon.svg")
+async def serve_icon():
+    """Serve the plugin icon."""
+    return FileResponse(os.path.join(PLUGIN_DIR, "icon.svg"), media_type="image/svg+xml")
+
+
 if __name__ == "__main__":
     import argparse
     import json
@@ -147,6 +153,7 @@ if __name__ == "__main__":
             "plugins": [{
                 "name": "rembg – Remove Background",
                 "url": base_url,
+                "icon": f"{base_url}/icon.svg",
             }]
         }
     }
