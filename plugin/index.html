@@ -170,11 +170,6 @@
   <h2>🪄 Remove Background</h2>
 
   <div class="field">
-    <label for="server-url">rembg Server URL</label>
-    <input type="text" id="server-url" value="https://localhost:7001" placeholder="https://localhost:7001">
-  </div>
-
-  <div class="field">
     <label for="mode">Apply to</label>
     <select id="mode">
       <option value="layer">Active Layer</option>
@@ -277,7 +272,8 @@
     async function removeBackground() {
       const btn = document.getElementById("btn-remove");
       const status = document.getElementById("status");
-      const serverUrl = document.getElementById("server-url").value.replace(/\/+$/, "");
+      // Use same origin — backend and plugin are served from the same server
+      const serverUrl = window.location.origin;
       const mode = document.getElementById("mode").value;
       const maskMode = document.getElementById("mask-mode").checked;
 

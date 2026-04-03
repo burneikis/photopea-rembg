@@ -1,11 +1,13 @@
 """
 rembg background removal server with CORS support for Photopea plugin.
+Also serves the plugin UI so only a single server is needed.
 """
 
 import io
+import os
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from rembg import remove
 from PIL import Image
 
@@ -18,6 +20,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+PLUGIN_DIR = os.path.join(os.path.dirname(__file__), "..", "plugin")
 
 
 @app.post("/api/remove")
@@ -55,17 +59,23 @@ async def health():
     return {"status": "ok"}
 
 
+@app.get("/")
+async def serve_plugin():
+    """Serve the plugin UI at the root."""
+    return FileResponse(os.path.join(PLUGIN_DIR, "index.html"), media_type="text/html")
+
+
 if __name__ == "__main__":
     import argparse
-    import os
+    import json
     import subprocess
+    import urllib.parse
     import uvicorn
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=7001)
     args = parser.parse_args()
 
-    # Reuse the same self-signed cert as the plugin server
     cert_dir = os.path.join(os.path.dirname(__file__), "..", ".certs")
     os.makedirs(cert_dir, exist_ok=True)
     cert_file = os.path.join(cert_dir, "cert.pem")
@@ -84,8 +94,23 @@ if __name__ == "__main__":
             capture_output=True,
         )
 
-    print(f"rembg server running at https://localhost:{args.port}")
-    print(f"⚠️  Visit https://localhost:{args.port}/health in your browser and accept the self-signed cert!")
+    base_url = f"https://localhost:{args.port}"
+    config = {
+        "environment": {
+            "plugins": [{
+                "name": "rembg – Remove Background",
+                "url": base_url,
+            }]
+        }
+    }
+    photopea_url = f"https://www.photopea.com#{urllib.parse.quote(json.dumps(config, separators=(',', ':')))}" 
+
+    print(f"\n🚀 rembg server + plugin running at {base_url}")
+    print(f"\n⚠️  First, visit {base_url}/health and accept the self-signed cert.")
+    print(f"\n🔗 Then open Photopea with the plugin:")
+    print(f"   {photopea_url}")
+    print(f"\n   Go to Window → Plugins → rembg – Remove Background\n")
+
     uvicorn.run(
         app,
         host="0.0.0.0",

@@ -2,100 +2,63 @@
 
 Remove image backgrounds directly inside [Photopea](https://www.photopea.com) using [rembg](https://github.com/danielgatis/rembg).
 
-## Architecture
-
-```
-┌─────────────────────────────────────────────┐
-│  Photopea (browser)                         │
-│  ┌──────────────────────┐                   │
-│  │  Plugin iframe        │ ── POST PNG ──▶ rembg server (localhost:7001)
-│  │  (localhost:8443)     │ ◀── PNG result ──│
-│  └──────────────────────┘                   │
-│       ▲ postMessage ▼                       │
-│  ┌──────────────────────┐                   │
-│  │  Photopea editor      │                  │
-│  └──────────────────────┘                   │
-└─────────────────────────────────────────────┘
-```
-
-## Setup
-
-### 1. Install Python dependencies
+## Quick Start
 
 ```bash
-cd backend
-pip install -r requirements.txt
+python run.py
 ```
 
-> First run will download the ML model (~170 MB).
+That's it. On first run this will:
+1. Create a Python virtual environment
+2. Install dependencies (+ download the ML model, ~170 MB)
+3. Generate a self-signed HTTPS certificate
+4. Start the server and print a Photopea launch URL
 
-### 2. Start the rembg server
+Then follow the two steps printed in the terminal:
+1. **Accept the cert** — visit `https://localhost:7001/health` in your browser and click through the security warning
+2. **Open the Photopea link** printed in the terminal — the plugin is pre-loaded
 
-```bash
-python backend/server.py
-```
-
-This runs at `https://localhost:7001`. Test it:
-```bash
-curl -sk -F file=@photo.jpg https://localhost:7001/api/remove -o result.png
-```
-
-### 3. Start the plugin dev server (HTTPS)
-
-In a second terminal:
-```bash
-python serve_plugin.py
-```
-
-This:
-- Generates a self-signed cert (first run only)
-- Serves the plugin at `https://localhost:8443/index.html`
-- Prints a **Photopea launch URL** with the plugin pre-configured
-
-### 4. Accept the self-signed certs
-
-Before opening Photopea, visit **both** URLs in your browser and accept the security warnings:
-
-1. `https://localhost:8443/index.html` (plugin)
-2. `https://localhost:7001/health` (rembg server)
-
-Both servers must be HTTPS because the plugin runs inside Photopea's HTTPS origin — the browser blocks mixed HTTP/HTTPS requests.
-
-### 5. Open Photopea with the plugin
-
-Use the URL printed by `serve_plugin.py`, which looks like:
-
-```
-https://www.photopea.com#{"environment":{"plugins":[{"name":"rembg – Remove Background","url":"https://localhost:8443/index.html"}]}}
-```
-
-Then go to **Window → Plugins → rembg – Remove Background**.
+> Use `--port` to change the port: `python run.py --port 9000`
 
 ## Usage
 
 1. Open an image in Photopea
-2. Open the plugin panel (Window → Plugins → rembg)
+2. Open the plugin panel (**Window → Plugins → rembg – Remove Background**)
 3. Choose "Active Layer" or "Entire Document"
 4. Click **Remove Background**
 5. A new layer called "rembg result" appears with the background removed
+
+Toggle **Mask mode** to apply the result as a layer mask instead.
+
+## Architecture
+
+A single HTTPS server serves both the plugin UI and the rembg API:
+
+```
+Photopea (browser)
+  └─ Plugin iframe (localhost:7001)
+       ├─ GET  /          → plugin UI
+       ├─ POST /api/remove → remove background
+       ├─ POST /api/mask   → generate mask
+       └─ GET  /health     → health check
+```
 
 ## Production Deployment
 
 For real (non-local) use:
 
 1. Deploy `backend/server.py` behind a reverse proxy with a real SSL cert
-2. Host `plugin/index.html` on any HTTPS static host (GitHub Pages, Netlify, etc.)
-3. Update the server URL in the plugin UI (or hardcode it in `index.html`)
-4. Share the Photopea URL with the `#environment` config, or submit to Photopea's plugin catalog
+2. Host `plugin/index.html` on any HTTPS static host, or let the server serve it
+3. Share the Photopea URL with the `#environment` config, or submit to Photopea's plugin catalog
 
 ## Files
 
 ```
+├── run.py                     # One-command launcher (start here)
 ├── backend/
-│   ├── server.py              # FastAPI rembg server
+│   ├── server.py              # FastAPI server (API + plugin UI)
 │   └── requirements.txt
 ├── plugin/
 │   └── index.html             # Plugin UI (runs inside Photopea iframe)
-├── serve_plugin.py            # HTTPS dev server + Photopea URL generator
 └── README.md
 ```
