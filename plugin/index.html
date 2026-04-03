@@ -222,22 +222,26 @@
       status.innerHTML = '<span class="spinner"></span> Exporting image from Photopea…';
 
       try {
-        // ── Step 1: If "layer" mode, isolate the active layer into a temp doc ──
+        // ── Step 1: Remember the original document name ──
+        const nameResult = await runScript('app.echoToOE(app.activeDocument.name);');
+        const origDocName = nameResult[0];
+
+        // ── Step 2: If "layer" mode, isolate the active layer into a temp doc ──
         if (mode === "layer") {
+          // Duplicate the layer into a new transparent document
           await runScript(`
             var doc = app.activeDocument;
             var layer = doc.activeLayer;
-            var tmpDoc = app.documents.add(doc.width, doc.height, doc.resolution, "rembg_tmp", NewDocumentMode.RGB);
+            var tmpDoc = app.documents.add(doc.width, doc.height, doc.resolution, "rembg_tmp");
+            app.activeDocument = tmpDoc;
+            tmpDoc.activeLayer.remove();
             app.activeDocument = doc;
             layer.duplicate(tmpDoc, ElementPlacement.INSIDE);
             app.activeDocument = tmpDoc;
-            if (tmpDoc.layers.length > 1) {
-              tmpDoc.layers[tmpDoc.layers.length - 1].remove();
-            }
           `);
         }
 
-        // ── Step 2: Export as PNG ──
+        // ── Step 3: Export as PNG ──
         const pngBuffer = await exportPNG();
         const blob = new Blob([pngBuffer], { type: "image/png" });
 
@@ -248,7 +252,7 @@
 
         status.innerHTML = `<span class="spinner"></span> Removing background (${(blob.size / 1024).toFixed(0)} KB)…`;
 
-        // ── Step 3: Send to rembg server ──
+        // ── Step 4: Send to rembg server ──
         const formData = new FormData();
         formData.append("file", blob, "image.png");
 
@@ -265,28 +269,29 @@
         const resultBuffer = await resp.arrayBuffer();
         status.innerHTML = '<span class="spinner"></span> Loading result into Photopea…';
 
-        // ── Step 4: Get the current layer count so we can detect when the new layer arrives ──
-        let oldCount = "done";
-        while (oldCount === "done") {
-          const r = await runScript('app.echoToOE(app.activeDocument.layers.length);');
-          oldCount = r[0];
-        }
-
-        // ── Step 5: Load the result image — this opens it as a new document ──
+        // ── Step 5: Load the result PNG — opens as a new document (preserves alpha) ──
         await loadAsset(resultBuffer);
-        await pause(100);
+        await pause(200);
 
-        // ── Step 6: Move the loaded image into the original doc as a new layer ──
-        // After loadAsset, the new document is active. We need to flatten it,
-        // select all, copy, close it, then paste into the original doc.
+        // ── Step 6: Move the layer from the new doc into the original doc ──
+        // Using duplicate() preserves transparency (unlike copy/paste or flatten).
         await runScript(`
           var newDoc = app.activeDocument;
-          newDoc.flatten();
-          newDoc.selection.selectAll();
-          newDoc.activeLayer.copy();
-          newDoc.close(SaveOptions.DONOTSAVECHANGES);
-          app.activeDocument.paste();
-          app.activeDocument.activeLayer.name = "rembg result";
+          var origDoc = null;
+          for (var i = 0; i < app.documents.length; i++) {
+            if (app.documents[i].name === "${origDocName.replace(/"/g, '\\"')}") {
+              origDoc = app.documents[i];
+              break;
+            }
+          }
+          if (origDoc && newDoc !== origDoc) {
+            newDoc.activeLayer.name = "rembg result";
+            newDoc.activeLayer.duplicate(origDoc, ElementPlacement.PLACEATBEGINNING);
+            newDoc.close(SaveOptions.DONOTSAVECHANGES);
+            app.activeDocument = origDoc;
+          } else {
+            app.activeDocument.activeLayer.name = "rembg result";
+          }
         `);
 
         status.className = "success";
