@@ -75,7 +75,7 @@ function isPortInUse(port) {
 }
 
 // ── Health check ─────────────────────────────────────────────
-function waitForHealth(url, timeoutMs = 30000) {
+function waitForHealth(url, timeoutMs = 120000) {
   const start = Date.now();
   return new Promise((resolve, reject) => {
     function check() {
@@ -112,8 +112,14 @@ async function startBackend() {
     // srcDir = .../resources/backend/rembg-server  (the PyInstaller onedir)
     const srcDir = path.dirname(binary);
     const destDir = path.join(app.getPath("userData"), "backend", path.basename(srcDir));
-    if (!fs.existsSync(destDir)) {
+    const versionStamp = path.join(path.dirname(destDir), ".version");
+    const currentVersion = app.getVersion();
+    const stampedVersion = fs.existsSync(versionStamp) ? fs.readFileSync(versionStamp, "utf8").trim() : null;
+    if (stampedVersion !== currentVersion) {
+      console.log(`Copying backend (version ${currentVersion})…`);
+      if (fs.existsSync(destDir)) fs.rmSync(destDir, { recursive: true });
       fs.cpSync(srcDir, destDir, { recursive: true });
+      fs.writeFileSync(versionStamp, currentVersion);
     }
     const executableBinary = path.join(destDir, path.basename(binary));
     fs.chmodSync(executableBinary, 0o755);
