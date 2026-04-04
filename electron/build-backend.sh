@@ -36,6 +36,8 @@ ONNX_DIR=$("$VENV_PYTHON" -c "import onnxruntime, os; print(os.path.dirname(onnx
   --add-data "$PROJECT_DIR/plugin:plugin" \
   --collect-all rembg \
   --collect-all onnxruntime \
+  --copy-metadata pymatting \
+  --copy-metadata rembg \
   --hidden-import uvicorn.logging \
   --hidden-import uvicorn.loops \
   --hidden-import uvicorn.loops.auto \

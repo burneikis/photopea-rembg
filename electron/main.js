@@ -23,16 +23,21 @@ function resourcePath(...parts) {
 
 function getBackendBinary() {
   if (app.isPackaged) {
+    // PyInstaller --onedir produces: backend-dist/rembg-server/rembg-server
+    // extraResources maps backend-dist/ -> resources/backend/, so the layout is:
+    //   resources/backend/rembg-server/rembg-server  (Linux)
     const binName = process.platform === "win32" ? "rembg-server.exe" : "rembg-server";
-    return path.join(process.resourcesPath, "backend", binName);
+    return path.join(process.resourcesPath, "backend", binName, binName);
   }
   // Dev mode: use the venv Python directly
   return null;
 }
 
 function getCertPaths() {
+  // In packaged mode, resourcesPath is read-only (AppImage mount), so write
+  // certs to the user's writable app data directory instead.
   const certDir = app.isPackaged
-    ? path.join(process.resourcesPath, "certs")
+    ? path.join(app.getPath("userData"), "certs")
     : path.join(__dirname, "..", ".certs");
 
   return {
@@ -101,9 +106,20 @@ async function startBackend() {
 
   const binary = getBackendBinary();
   if (binary) {
-    // Packaged mode: run PyInstaller binary
-    console.log(`Starting backend: ${binary}`);
-    backendProcess = spawn(binary, ["--port", String(PORT)], {
+    // AppImage mounts are read-only, so copy the entire backend dir to userData
+    // and run from there so we can chmod and execute the binary.
+    // binary = .../resources/backend/rembg-server/rembg-server
+    // srcDir = .../resources/backend/rembg-server  (the PyInstaller onedir)
+    const srcDir = path.dirname(binary);
+    const destDir = path.join(app.getPath("userData"), "backend", path.basename(srcDir));
+    if (!fs.existsSync(destDir)) {
+      fs.cpSync(srcDir, destDir, { recursive: true });
+    }
+    const executableBinary = path.join(destDir, path.basename(binary));
+    fs.chmodSync(executableBinary, 0o755);
+
+    console.log(`Starting backend: ${executableBinary}`);
+    backendProcess = spawn(executableBinary, ["--port", String(PORT)], {
       env: {
         ...process.env,
         SSL_CERTFILE: cert,

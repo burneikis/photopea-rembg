@@ -3,6 +3,9 @@ rembg background removal server with CORS support for Photopea plugin.
 Also serves the plugin UI so only a single server is needed.
 """
 
+import multiprocessing
+multiprocessing.freeze_support()  # Must be before any other code for PyInstaller
+
 import io
 import os
 import sys

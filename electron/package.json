@@ -35,11 +35,6 @@
         "from": "../plugin/",
         "to": "plugin",
         "filter": ["**/*"]
-      },
-      {
-        "from": "../.certs/",
-        "to": "certs",
-        "filter": ["*.pem"]
       }
     ],
     "linux": {
