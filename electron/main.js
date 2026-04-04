@@ -203,6 +203,7 @@ function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
+    frame: false,
     title: "Rembg for Photopea",
     webPreferences: {
       nodeIntegration: false,
