@@ -1,7 +1,7 @@
 [Desktop Entry]
-Name=Photopea
-Comment=Photopea Image Editor with Rembg Integration
-Exec=bash -c '"$(dirname "%k")/launch.sh"'
+Name=Rembg for Photopea
+Comment=Remove backgrounds in Photopea using rembg
+Exec=/PATH/TO/photopea-rembg/.venv/bin/python /PATH/TO/photopea-rembg/tray.py
 Icon=/PATH/TO/photopea-rembg/photopea.png
 Terminal=false
 Type=Application
