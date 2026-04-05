@@ -1,6 +1,6 @@
 [Desktop Entry]
-Name=Rembg for Photopea
-Comment=Remove backgrounds in Photopea using rembg
+Name=Photopea
+Comment=Photopea Image Editor with Rembg Integration
 Exec=/PATH/TO/photopea-rembg/.venv/bin/python /PATH/TO/photopea-rembg/tray.py
 Icon=/PATH/TO/photopea-rembg/photopea.png
 Terminal=false
