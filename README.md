@@ -1,156 +1,104 @@
-# Photopea rembg Plugin
+# photopea-rembg
 
 Remove image backgrounds directly inside [Photopea](https://www.photopea.com) using [rembg](https://github.com/danielgatis/rembg).
 
-## Quick Start
+An Electron window wraps Photopea and manages the rembg backend automatically.
 
+## Setup
+
+**Prerequisites:** Node.js, Python 3, `npm`, `openssl`
+
+**1. Install Electron dependencies**
 ```bash
-python run.py
+cd electron
+npm install
 ```
 
-That's it. On first run this will:
-1. Create a Python virtual environment
-2. Install dependencies (+ download the ML model, ~170 MB)
-3. Generate a self-signed HTTPS certificate
-4. Start the server and print a Photopea launch URL
+**2. Set up the Python venv and install ML dependencies** (~170 MB model download on first run)
+```bash
+python run.py
+# Ctrl+C once you see the server is ready — this just does first-time setup
+```
 
-Then follow the two steps printed in the terminal:
-1. **Accept the cert** — visit `https://localhost:7001/health` in your browser and click through the security warning
-2. **Open the Photopea link** printed in the terminal — the plugin is pre-loaded
+**3. Launch**
+```bash
+cd electron
+npm start
+```
 
-> Use `--port` to change the port: `python run.py --port 9000`
+The app starts the backend, waits for it to be healthy, then opens Photopea with the plugin pre-loaded.
+
+## Desktop Entry (Linux)
+
+The included `rembg-photopea.desktop` is a template. Install it with the correct absolute path:
+
+```bash
+DIR="$(pwd)"
+mkdir -p ~/.local/share/applications
+cat > ~/.local/share/applications/rembg-photopea.desktop << EOF
+[Desktop Entry]
+Name=Rembg for Photopea
+Comment=Remove backgrounds in Photopea using rembg
+Exec=bash -c 'cd $DIR/electron && npm start'
+Icon=$DIR/electron/icon.svg
+Terminal=false
+Type=Application
+Categories=Graphics;
+EOF
+```
+
+Then find **Rembg for Photopea** in your app launcher.
 
 ## Usage
 
 1. Open an image in Photopea
 2. Open the plugin panel (**Window → Plugins → rembg – Remove Background**)
-3. Choose "Active Layer" or "Entire Document"
+3. Choose a model, select "Active Layer" or "Entire Document"
 4. Click **Remove Background**
-5. A new layer called "rembg result" appears with the background removed
 
-Toggle **Mask mode** to apply the result as a layer mask instead.
+Toggle **Mask mode** to apply the result as a layer mask instead of a new layer.
 
 ## Architecture
 
-A single HTTPS server serves both the plugin UI and the rembg API:
-
 ```
-Photopea (browser)
-  └─ Plugin iframe (localhost:7001)
-       ├─ GET  /          → plugin UI
-       ├─ POST /api/remove → remove background
-       ├─ POST /api/mask   → generate mask
-       └─ GET  /health     → health check
-```
-
-## One-Click Launcher (Linux)
-
-Instead of running `python run.py` manually each time, use the included launcher:
-
-### Option 1: Desktop shortcut
-
-```bash
-# Copy the .desktop file to your desktop or applications
-cp rembg-photopea.desktop ~/.local/share/applications/
+electron/main.js
+  └─ spawns backend/server.py (.venv/bin/python)
+       ├─ POST /api/remove  → remove background, return transparent PNG
+       ├─ POST /api/mask    → return grayscale mask PNG
+       ├─ GET  /            → plugin UI (plugin/index.html)
+       └─ GET  /health      → health check
+  └─ opens Photopea in a frameless window
+       └─ plugin iframe loads from https://localhost:7001
 ```
 
-Then find **"Rembg for Photopea"** in your app launcher — it starts the backend and opens Photopea automatically.
-
-### Option 2: Run the script directly
-
-```bash
-./launch.sh        # start server + open Photopea
-./launch.sh stop   # stop the background server
-```
-
-The server runs in the background and is reused across launches. Logs are written to `.server.log`.
-
-### Option 3: Auto-start on login (systemd)
-
-To keep the server always running so a browser bookmark just works:
-
-```bash
-mkdir -p ~/.config/systemd/user
-
-cat > ~/.config/systemd/user/rembg-photopea.service << EOF
-[Unit]
-Description=rembg server for Photopea
-After=network.target
-
-[Service]
-Type=simple
-WorkingDirectory=$(pwd)
-ExecStart=$(pwd)/.venv/bin/python $(pwd)/backend/server.py --port 7001
-Restart=on-failure
-
-[Install]
-WantedBy=default.target
-EOF
-
-systemctl --user daemon-reload
-systemctl --user enable --now rembg-photopea
-```
-
-Then just bookmark the Photopea URL (printed by `python run.py`) and click it anytime.
-
-## Electron App (Desktop)
-
-Run Photopea + rembg as a standalone desktop app — no terminal, no browser, no manual server start.
-
-### Dev mode (quick test)
-
-```bash
-# Make sure the venv is set up first
-python run.py &   # or let it stay running
-
-cd electron
-npm install
-npm start
-```
-
-### Build distributable
-
-```bash
-cd electron
-npm install
-npm run dist:linux   # → AppImage + .deb in electron/dist/
-# or: npm run dist:win / npm run dist:mac
-```
-
-This will:
-1. Bundle the Python backend into a standalone binary with PyInstaller
-2. Package everything into an Electron app (AppImage/deb/dmg/exe)
-
-The resulting app:
-- Shows a splash screen while the backend starts
-- Automatically accepts the self-signed cert (no browser warning)
-- Opens Photopea with the plugin pre-loaded
-- Stops the backend when you close the window
-
-## Production Deployment
-
-For real (non-local) use:
-
-1. Deploy `backend/server.py` behind a reverse proxy with a real SSL cert
-2. Host `plugin/index.html` on any HTTPS static host, or let the server serve it
-3. Share the Photopea URL with the `#environment` config, or submit to Photopea's plugin catalog
+The backend runs HTTPS with a self-signed cert (generated automatically in `.certs/`). Electron is configured to trust it for `localhost`.
 
 ## Files
 
 ```
-├── run.py                     # One-command launcher (start here)
-├── launch.sh                  # Background launcher (start server + open browser)
-├── rembg-photopea.desktop     # Linux .desktop shortcut
+├── run.py                  # First-time setup (venv + deps)
+├── rembg-photopea.desktop  # Desktop entry template (edit Exec path before use)
 ├── backend/
-│   ├── server.py              # FastAPI server (API + plugin UI)
+│   ├── server.py           # FastAPI backend (rembg API + serves plugin UI)
 │   └── requirements.txt
 ├── plugin/
-│   └── index.html             # Plugin UI (runs inside Photopea iframe)
-├── electron/
-│   ├── main.js                # Electron main process
-│   ├── preload.js             # Preload (sandboxed)
-│   ├── splash.html            # Loading screen
-│   ├── build-backend.sh       # PyInstaller build script
-│   └── package.json           # Electron + electron-builder config
-└── README.md
+│   └── index.html          # Plugin UI (runs inside Photopea as an iframe)
+└── electron/
+    ├── main.js             # Electron entry point
+    ├── preload.js
+    ├── splash.html
+    ├── build-backend.sh    # PyInstaller bundler (for standalone dist builds)
+    └── package.json
 ```
+
+## Notes
+
+- The AppImage/deb builds (`electron/build-backend.sh` + `npm run dist:linux`) are buggy and not the recommended way to use this.
+- `launch.sh` is an alternative browser-based launcher (no Electron); it's not the primary workflow.
+- ML models are cached in `~/.u2net/` by rembg on first use per model.
+
+## Potential Cleanup
+
+- [ ] Remove or archive `launch.sh` — not the primary workflow
+- [ ] Remove or clearly gate the dist/AppImage build path (`electron/build-backend.sh`, `dist:linux` script) since it's known-buggy
+- [ ] Add a proper app icon (currently uses the generic `applications-graphics` system icon for the desktop entry)

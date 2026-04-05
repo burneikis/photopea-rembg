@@ -5,3 +5,5 @@ electron/node_modules
 /.pyinstaller-build
 /electron/backend-dist/rembg-server
 /electron/dist
+/.server.log
+/.server.pid
