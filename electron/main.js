@@ -232,6 +232,11 @@ function createMainWindow() {
 
   mainWindow.loadURL(getPhotopeaUrl());
 
+  // Prevent Photopea's beforeunload handler from blocking window close
+  mainWindow.webContents.on("will-prevent-unload", (event) => {
+    event.preventDefault();
+  });
+
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
