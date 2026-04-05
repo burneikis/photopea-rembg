@@ -2,9 +2,5 @@
 .venv
 .claude
 __pycache__
-/.pyinstaller-build
-/electron/backend-dist/rembg-server
-/electron/dist
-/electron/node_modules
-/.server.log
-/.server.pid
+.server.log
+.server.pid

@@ -56,7 +56,6 @@ Toggle **Mask mode** to apply the result as a layer mask instead of a new layer.
 
 ```
 ├── launch.sh               # Main launcher (start/stop the server + open browser)
-├── run.py                  # Alternative: one-command launcher (foreground)
 ├── rembg-photopea.desktop  # Desktop entry template (see Setup above)
 ├── photopea.png            # Icon for the desktop entry
 ├── backend/
@@ -78,8 +77,3 @@ launch.sh
   └─ opens browser with Photopea URL (plugin pre-loaded via #environment config)
 ```
 
-## Potential Cleanup
-
-- [ ] Remove `run.py` — it's redundant now that `launch.sh` handles setup
-- [ ] Add the self-signed cert acceptance step to `launch.sh` automatically (e.g. open `https://localhost:7001/health` in the browser first, wait for user, then open Photopea)
-- [ ] Make the desktop entry install smarter — an `install.sh` that substitutes the path and copies the file
