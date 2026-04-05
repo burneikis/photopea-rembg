@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """
-System tray launcher for the Photopea rembg plugin.
+System tray icon for the Photopea rembg plugin.
 Starts the backend server, opens Photopea, and sits in the tray.
+Left-click: open Photopea. Right-click: menu.
 """
+
+import gi
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gtk, GLib
 
 import json
 import os
@@ -12,9 +17,7 @@ import sys
 import time
 import urllib.parse
 import urllib.request
-
-import pystray
-from PIL import Image
+import ssl
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 PIDFILE = os.path.join(ROOT, ".server.pid")
@@ -35,7 +38,17 @@ CONFIG = {
         }]
     }
 }
-PHOTOPEA_URL = f"https://www.photopea.com#{urllib.parse.quote(json.dumps(CONFIG, separators=(',', ':')))}"
+PHOTOPEA_URL = (
+    "https://www.photopea.com#"
+    + urllib.parse.quote(json.dumps(CONFIG, separators=(",", ":")))
+)
+
+
+def _ssl_ctx():
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
 
 
 def is_running():
@@ -46,7 +59,10 @@ def is_running():
         os.kill(pid, 0)
         return True
     except (ValueError, ProcessLookupError, OSError):
-        os.unlink(PIDFILE)
+        try:
+            os.unlink(PIDFILE)
+        except OSError:
+            pass
         return False
 
 
@@ -68,15 +84,12 @@ def start_server():
         cwd=ROOT,
     )
     open(PIDFILE, "w").write(str(proc.pid))
-
-    # Wait up to 15 s for the server to be ready
     for _ in range(30):
         try:
             urllib.request.urlopen(f"{BASE_URL}/health", context=_ssl_ctx(), timeout=1)
-            return True
+            return
         except Exception:
             time.sleep(0.5)
-    return False  # timed out, but keep going
 
 
 def stop_server():
@@ -88,25 +101,47 @@ def stop_server():
     except (ValueError, ProcessLookupError, OSError):
         pass
     finally:
-        if os.path.exists(PIDFILE):
+        try:
             os.unlink(PIDFILE)
+        except OSError:
+            pass
 
 
-def _ssl_ctx():
-    import ssl
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    return ctx
-
-
-def open_photopea(_icon=None, _item=None):
+def open_photopea():
     subprocess.Popen(["xdg-open", PHOTOPEA_URL])
 
 
-def quit_app(icon, _item=None):
-    stop_server()
-    icon.stop()
+class TrayIcon:
+    def __init__(self):
+        self.icon = Gtk.StatusIcon()
+        self.icon.set_from_file(ICON_FILE)
+        self.icon.set_tooltip_text("Rembg for Photopea")
+        self.icon.set_visible(True)
+        self.icon.connect("activate", self._on_activate)
+        self.icon.connect("popup-menu", self._on_popup_menu)
+
+    def _on_activate(self, _icon):
+        open_photopea()
+
+    def _on_popup_menu(self, icon, button, timestamp):
+        menu = Gtk.Menu()
+
+        item_open = Gtk.MenuItem(label="Open Photopea")
+        item_open.connect("activate", lambda _: open_photopea())
+        menu.append(item_open)
+
+        menu.append(Gtk.SeparatorMenuItem())
+
+        item_quit = Gtk.MenuItem(label="Stop Server & Quit")
+        item_quit.connect("activate", lambda _: self._quit())
+        menu.append(item_quit)
+
+        menu.show_all()
+        menu.popup(None, None, Gtk.StatusIcon.position_menu, icon, button, timestamp)
+
+    def _quit(self):
+        stop_server()
+        Gtk.main_quit()
 
 
 def main():
@@ -115,14 +150,8 @@ def main():
 
     open_photopea()
 
-    icon_image = Image.open(ICON_FILE)
-    menu = pystray.Menu(
-        pystray.MenuItem("Open Photopea", open_photopea, default=True),
-        pystray.Menu.SEPARATOR,
-        pystray.MenuItem("Stop Server & Quit", quit_app),
-    )
-    icon = pystray.Icon("rembg-photopea", icon_image, "Rembg for Photopea", menu)
-    icon.run()
+    _tray = TrayIcon()
+    Gtk.main()
 
 
 if __name__ == "__main__":
