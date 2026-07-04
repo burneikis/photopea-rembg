@@ -553,15 +553,11 @@
         let revealOffsetX = 0, revealOffsetY = 0;
         let usingWorkingDoc = false;
 
-        // Mask mode: a layer mask is canvas-bound, so to include off-canvas
-        // pixels we must expand the REAL document's canvas ("Reveal All").
-        // The returned mask is then the same size as the expanded canvas and
-        // aligns 1:1 with the centered paste used in applyAsMask().
-        if (maskMode) {
-          await runScript(`
-            try { executeAction(stringIDToTypeID("revealAll"), new ActionDescriptor(), DialogModes.NO); } catch (e) {}
-          `);
-        }
+        // Mask mode: a layer mask is canvas-bound. We deliberately do NOT
+        // "Reveal All" on the real document: expanding the user's canvas is
+        // destructive (it permanently resizes their document). The mask is
+        // generated from the visible canvas only; off-canvas pixels are left
+        // untouched.
 
         if (mode === "layer") {
           // Duplicate the active layer into a new transparent document
