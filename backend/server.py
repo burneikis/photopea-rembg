@@ -107,21 +107,29 @@ async def generate_mask(
     return Response(content=buf.getvalue(), media_type="image/png")
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 async def health():
     return {"status": "ok"}
 
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 async def serve_plugin():
     """Serve the plugin UI at the root."""
-    return FileResponse(os.path.join(PLUGIN_DIR, "index.html"), media_type="text/html")
+    return FileResponse(
+        os.path.join(PLUGIN_DIR, "index.html"),
+        media_type="text/html",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
-@app.get("/icon.svg")
+@app.api_route("/icon.svg", methods=["GET", "HEAD"])
 async def serve_icon():
     """Serve the plugin icon."""
-    return FileResponse(os.path.join(PLUGIN_DIR, "icon.svg"), media_type="image/svg+xml")
+    return FileResponse(
+        os.path.join(PLUGIN_DIR, "icon.svg"),
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 if __name__ == "__main__":

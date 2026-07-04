@@ -366,6 +366,25 @@
     const pea = window.parent;
 
     /**
+     * Accept replies from Photopea even if the iframe nesting changed.
+     * Filter by origin (photopea.com) or by known window sources.
+     */
+    function isFromPea(e) {
+      try {
+        if (/(^|\.)photopea\.com$/.test(new URL(e.origin).hostname)) return true;
+      } catch (_) {}
+      return e.source === window.parent || e.source === window.top;
+    }
+
+    /** Post to parent, and also to top if it's a different window. */
+    function postToPea(msg) {
+      window.parent.postMessage(msg, "*");
+      if (window.top !== window.parent) {
+        try { window.top.postMessage(msg, "*"); } catch (_) {}
+      }
+    }
+
+    /**
      * Small delay — avoids race conditions when chaining commands.
      */
     function pause(ms = 30) {
@@ -376,13 +395,17 @@
      * Run a Photopea script string. Returns an array of all outputs
      * Photopea sent before the final "done".
      */
-    function runScript(script) {
-      return new Promise((resolve) => {
+    function runScript(script, timeoutMs = 30000) {
+      return new Promise((resolve, reject) => {
         const outputs = [];
+        const timer = setTimeout(() => {
+          window.removeEventListener("message", handler);
+          reject(new Error("Timed out waiting for Photopea to respond (no 'done' message received)"));
+        }, timeoutMs);
         function handler(e) {
-          // Only handle messages from the Photopea parent window
-          if (e.source !== pea) return;
+          if (!isFromPea(e)) return;
           if (e.data === "done") {
+            clearTimeout(timer);
             window.removeEventListener("message", handler);
             resolve(outputs);
           } else {
@@ -390,7 +413,7 @@
           }
         }
         window.addEventListener("message", handler);
-        pea.postMessage(script, "*");
+        postToPea(script);
       });
     }
 
@@ -398,17 +421,22 @@
      * Send an ArrayBuffer to Photopea (opens it as a new document).
      * Waits for "done".
      */
-    function loadAsset(arrayBuffer) {
-      return new Promise((resolve) => {
+    function loadAsset(arrayBuffer, timeoutMs = 60000) {
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          window.removeEventListener("message", handler);
+          reject(new Error("Timed out waiting for Photopea to load asset"));
+        }, timeoutMs);
         function handler(e) {
-          if (e.source !== pea) return;
+          if (!isFromPea(e)) return;
           if (e.data === "done") {
+            clearTimeout(timer);
             window.removeEventListener("message", handler);
             resolve();
           }
         }
         window.addEventListener("message", handler);
-        pea.postMessage(arrayBuffer, "*");
+        postToPea(arrayBuffer);
       });
     }
 
@@ -517,9 +545,26 @@
           origLayerName = layerResult[0];
         }
 
-        // ── Step 2: If "layer" mode, isolate the active layer into a temp doc ──
+        // ── Step 2: Build the working document to export ──
+        // For non-mask modes we work on a temporary copy and expand its
+        // canvas ("Reveal All") so pixels hanging off the edge of the canvas
+        // are included in the background removal. We remember how far the
+        // content shifted so the result can be re-aligned afterwards.
+        let revealOffsetX = 0, revealOffsetY = 0;
+        let usingWorkingDoc = false;
+
+        // Mask mode: a layer mask is canvas-bound, so to include off-canvas
+        // pixels we must expand the REAL document's canvas ("Reveal All").
+        // The returned mask is then the same size as the expanded canvas and
+        // aligns 1:1 with the centered paste used in applyAsMask().
+        if (maskMode) {
+          await runScript(`
+            try { executeAction(stringIDToTypeID("revealAll"), new ActionDescriptor(), DialogModes.NO); } catch (e) {}
+          `);
+        }
+
         if (mode === "layer") {
-          // Duplicate the layer into a new transparent document
+          // Duplicate the active layer into a new transparent document
           await runScript(`
             var doc = app.activeDocument;
             var layer = doc.activeLayer;
@@ -530,14 +575,40 @@
             layer.duplicate(tmpDoc, ElementPlacement.INSIDE);
             app.activeDocument = tmpDoc;
           `);
+          usingWorkingDoc = true;
+        } else if (!maskMode) {
+          // Duplicate the whole document so we never mutate the user's canvas
+          await runScript(`
+            app.activeDocument.duplicate("rembg_tmp");
+          `);
+          usingWorkingDoc = true;
+        }
+
+        // Expand the working canvas to reveal off-canvas content (non-mask only).
+        if (usingWorkingDoc && !maskMode) {
+          const off = await runScript(`
+            var doc = app.activeDocument;
+            function bv(b, i) { return (b[i] && b[i].value !== undefined) ? b[i].value : b[i]; }
+            var before = doc.activeLayer.bounds;
+            var bL = bv(before, 0), bT = bv(before, 1);
+            try {
+              executeAction(stringIDToTypeID("revealAll"), new ActionDescriptor(), DialogModes.NO);
+            } catch (e) {}
+            var after = doc.activeLayer.bounds;
+            var aL = bv(after, 0), aT = bv(after, 1);
+            app.echoToOE((aL - bL) + "," + (aT - bT));
+          `);
+          const parts = String(off.find(d => typeof d === "string") || "0,0").split(",");
+          revealOffsetX = parseFloat(parts[0]) || 0;
+          revealOffsetY = parseFloat(parts[1]) || 0;
         }
 
         // ── Step 3: Export as PNG ──
         const pngBuffer = await exportPNG();
         const blob = new Blob([pngBuffer], { type: "image/png" });
 
-        // Close temp doc if we made one
-        if (mode === "layer") {
+        // Close the working/temp doc if we made one
+        if (usingWorkingDoc) {
           await runScript('app.activeDocument.close(SaveOptions.DONOTSAVECHANGES);');
         }
 
@@ -603,9 +674,18 @@
             }
             if (origDoc && newDoc !== origDoc) {
               newDoc.activeLayer.name = "rembg result";
-              newDoc.activeLayer.duplicate(origDoc, ElementPlacement.PLACEATBEGINNING);
+              var dup = newDoc.activeLayer.duplicate(origDoc, ElementPlacement.PLACEATBEGINNING);
               newDoc.close(SaveOptions.DONOTSAVECHANGES);
               app.activeDocument = origDoc;
+              // Re-align: the working canvas was expanded by (offsetX, offsetY)
+              // relative to the original canvas origin, so shift the result back.
+              if (dup) {
+                origDoc.activeLayer = dup;
+                if (${revealOffsetX} || ${revealOffsetY}) {
+                  dup.translate(${-revealOffsetX}, ${-revealOffsetY});
+                }
+                dup.name = "rembg result";
+              }
             } else {
               app.activeDocument.activeLayer.name = "rembg result";
             }
