@@ -273,10 +273,7 @@ async function removeBackground() {
     }
     const { buffer: resultBuffer } = await removeBackgroundLocal(
       pngBuffer,
-      {
-        model, maskMode, postProcess, bgcolor,
-        pad: maskMode ? { docW, docH, ox: revealOffsetX, oy: revealOffsetY } : null,
-      },
+      { model, maskMode, postProcess, bgcolor },
       onProgress,
       onStatus
     );
@@ -288,7 +285,8 @@ async function removeBackground() {
     status.innerHTML = '<span class="spinner"></span> Loading result into Photopea…';
 
     if (maskMode) {
-      await applyAsMask(resultBuffer, origDocName, origLayerName, { docW, docH });
+      await applyAsMask(resultBuffer, origDocName, origLayerName,
+        { docW, docH, ox: revealOffsetX, oy: revealOffsetY });
       status.className = "success";
       status.textContent = `Layer mask applied (${currentEP()}).`;
     } else {
@@ -336,11 +334,13 @@ async function removeBackground() {
  * Apply a grayscale mask image as a layer mask on the active layer.
  */
 async function applyAsMask(maskBuffer, origDocName, origLayerName, dims) {
-  // 1. Open the mask image in Photopea; note its size. If it is larger than
-  // the document canvas (layer extends off-canvas), the canvas must be
-  // temporarily enlarged: Photopea clips pasted mask data to the canvas,
-  // but off-canvas mask data survives resizeCanvas, so we grow, paste,
-  // then shrink back.
+  // 1. Open the mask image in Photopea; note its size. The mask is at the
+  // Reveal-All export size, covering doc coords [-ox .. maskW-ox] x
+  // [-oy .. maskH-oy]. Photopea clips pasted mask data to the canvas, but
+  // off-canvas mask data survives resizeCanvas, so the canvas is temporarily
+  // grown to exactly that region (two anchored resizes), the mask pasted
+  // (canvas size == mask size, so centered paste aligns exactly), then the
+  // canvas is cut back the same way.
   await loadAsset(maskBuffer);
   await pause(300);
   const mDim = await runScript(
@@ -350,6 +350,8 @@ async function applyAsMask(maskBuffer, origDocName, origLayerName, dims) {
   const maskW = parseFloat(mParts[0]) || 0;
   const maskH = parseFloat(mParts[1]) || 0;
   const needResize = dims && (maskW > dims.docW || maskH > dims.docH);
+  const ox = (dims && dims.ox) || 0;
+  const oy = (dims && dims.oy) || 0;
 
   // 2. Select All and Copy
   await runScript(`
@@ -405,7 +407,9 @@ async function applyAsMask(maskBuffer, origDocName, origLayerName, dims) {
     desc.putReference(charIDToTypeID("At  "), ref);
     desc.putEnumerated(charIDToTypeID("Usng"), charIDToTypeID("UsrM"), charIDToTypeID("RvlA"));
     executeAction(charIDToTypeID("Mk  "), desc, DialogModes.NO);
-    ${needResize ? `app.activeDocument.resizeCanvas(${maskW}, ${maskH});` : ""}
+    ${needResize ? `
+    app.activeDocument.resizeCanvas(${maskW - ox}, ${maskH - oy}, AnchorPosition.TOPLEFT);
+    app.activeDocument.resizeCanvas(${maskW}, ${maskH}, AnchorPosition.BOTTOMRIGHT);` : ""}
   `);
   await pause(100);
 
@@ -432,7 +436,9 @@ async function applyAsMask(maskBuffer, origDocName, origLayerName, dims) {
     var desc = new ActionDescriptor();
     desc.putReference(charIDToTypeID("null"), ref);
     executeAction(charIDToTypeID("slct"), desc, DialogModes.NO);
-    ${needResize ? `app.activeDocument.resizeCanvas(${dims.docW}, ${dims.docH});` : ""}
+    ${needResize ? `
+    app.activeDocument.resizeCanvas(${maskW - ox}, ${maskH - oy}, AnchorPosition.BOTTOMRIGHT);
+    app.activeDocument.resizeCanvas(${dims.docW}, ${dims.docH}, AnchorPosition.TOPLEFT);` : ""}
   `);
   await pause(100);
 }

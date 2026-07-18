@@ -315,25 +315,9 @@ async function removeBackgroundLocal(pngBuffer, opts, onProgress, onStatus) {
 
   let outCanvas;
   if (opts.maskMode) {
+    // Mask stays at the exported (Reveal-All) size; app.js aligns it by
+    // growing the canvas asymmetrically to the same region before pasting.
     outCanvas = maskCanvas;
-    // If the export was Reveal-All'ed (larger than the document canvas),
-    // pad the mask symmetrically around the document so that Photopea's
-    // center-based paste aligns it with the off-canvas layer content.
-    if (opts.pad && opts.pad.docW && opts.pad.docH) {
-      const { docW, docH, ox, oy } = opts.pad;
-      const mx = Math.max(ox, w - ox - docW, 0);
-      const my = Math.max(oy, h - oy - docH, 0);
-      const W2 = docW + 2 * mx, H2 = docH + 2 * my;
-      if (W2 !== w || H2 !== h) {
-        const padded = document.createElement("canvas");
-        padded.width = W2; padded.height = H2;
-        const pctx = padded.getContext("2d");
-        pctx.fillStyle = "#000";
-        pctx.fillRect(0, 0, W2, H2);
-        pctx.drawImage(outCanvas, mx - ox, my - oy);
-        outCanvas = padded;
-      }
-    }
   } else {
     outCanvas = document.createElement("canvas");
     outCanvas.width = w; outCanvas.height = h;
