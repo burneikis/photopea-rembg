@@ -25,8 +25,14 @@ function pause(ms = 30) {
   return new Promise(r => setTimeout(r, ms));
 }
 
+// Photopea posts an extra "done" whenever a document is opened, created or
+// closed by a script, which would desynchronize a naive "resolve on done"
+// approach. Instead every script is suffixed with a unique echo token and we
+// resolve only when that token comes back; "done" messages are ignored.
+let _scriptSeq = 0;
 function runScript(script, timeoutMs = 30000) {
   return new Promise((resolve, reject) => {
+    const token = "__rembg_sync_" + (++_scriptSeq) + "__";
     const outputs = [];
     const timer = setTimeout(() => {
       window.removeEventListener("message", handler);
@@ -34,16 +40,16 @@ function runScript(script, timeoutMs = 30000) {
     }, timeoutMs);
     function handler(e) {
       if (!isFromPea(e)) return;
-      if (e.data === "done") {
+      if (e.data === token) {
         clearTimeout(timer);
         window.removeEventListener("message", handler);
         resolve(outputs);
-      } else {
+      } else if (e.data !== "done") {
         outputs.push(e.data);
       }
     }
     window.addEventListener("message", handler);
-    postToPea(script);
+    postToPea(script + '\napp.echoToOE("' + token + '");');
   });
 }
 
@@ -196,8 +202,16 @@ async function removeBackground() {
       origLayerName = layerResult[0];
     }
 
+    // Document canvas size (needed to re-align masks after Reveal All)
+    const dimResult = await runScript(
+      'app.echoToOE(parseFloat(app.activeDocument.width) + "," + parseFloat(app.activeDocument.height));'
+    );
+    const dimParts = String(dimResult.find(d => typeof d === "string") || "0,0").split(",");
+    const docW = parseFloat(dimParts[0]) || 0;
+    const docH = parseFloat(dimParts[1]) || 0;
+
     // ── Step 2: Build the working document to export ──
-    // Non-mask modes work on a temporary copy with "Reveal All" applied so
+    // All modes work on a temporary copy with "Reveal All" applied so
     // off-canvas pixels are included; the offset is remembered to re-align.
     let revealOffsetX = 0, revealOffsetY = 0;
     let usingWorkingDoc = false;
@@ -217,12 +231,12 @@ async function removeBackground() {
         }
       `);
       usingWorkingDoc = true;
-    } else if (!maskMode) {
+    } else {
       await runScript('app.activeDocument.duplicate("rembg_tmp");');
       usingWorkingDoc = true;
     }
 
-    if (usingWorkingDoc && !maskMode) {
+    if (usingWorkingDoc) {
       const off = await runScript(`
         var doc = app.activeDocument;
         function bv(b, i) { return (b[i] && b[i].value !== undefined) ? b[i].value : b[i]; }
@@ -259,7 +273,10 @@ async function removeBackground() {
     }
     const { buffer: resultBuffer } = await removeBackgroundLocal(
       pngBuffer,
-      { model, maskMode, postProcess, bgcolor },
+      {
+        model, maskMode, postProcess, bgcolor,
+        pad: maskMode ? { docW, docH, ox: revealOffsetX, oy: revealOffsetY } : null,
+      },
       onProgress,
       onStatus
     );
@@ -271,7 +288,7 @@ async function removeBackground() {
     status.innerHTML = '<span class="spinner"></span> Loading result into Photopea…';
 
     if (maskMode) {
-      await applyAsMask(resultBuffer, origDocName, origLayerName);
+      await applyAsMask(resultBuffer, origDocName, origLayerName, { docW, docH });
       status.className = "success";
       status.textContent = `Layer mask applied (${currentEP()}).`;
     } else {
@@ -318,10 +335,21 @@ async function removeBackground() {
 /**
  * Apply a grayscale mask image as a layer mask on the active layer.
  */
-async function applyAsMask(maskBuffer, origDocName, origLayerName) {
-  // 1. Open the mask image in Photopea
+async function applyAsMask(maskBuffer, origDocName, origLayerName, dims) {
+  // 1. Open the mask image in Photopea; note its size. If it is larger than
+  // the document canvas (layer extends off-canvas), the canvas must be
+  // temporarily enlarged: Photopea clips pasted mask data to the canvas,
+  // but off-canvas mask data survives resizeCanvas, so we grow, paste,
+  // then shrink back.
   await loadAsset(maskBuffer);
   await pause(300);
+  const mDim = await runScript(
+    'app.echoToOE(parseFloat(app.activeDocument.width) + "," + parseFloat(app.activeDocument.height));'
+  );
+  const mParts = String(mDim.find(d => typeof d === "string") || "0,0").split(",");
+  const maskW = parseFloat(mParts[0]) || 0;
+  const maskH = parseFloat(mParts[1]) || 0;
+  const needResize = dims && (maskW > dims.docW || maskH > dims.docH);
 
   // 2. Select All and Copy
   await runScript(`
@@ -359,10 +387,16 @@ async function applyAsMask(maskBuffer, origDocName, origLayerName) {
     }
     var targetLayer = findLayer(doc.layers, "${(origLayerName || '').replace(/"/g, '\\"')}");
     if (targetLayer) doc.activeLayer = targetLayer;
+    // Masks cannot be applied to a locked Background layer
+    try {
+      if (doc.activeLayer.isBackgroundLayer) doc.activeLayer.isBackgroundLayer = false;
+      doc.activeLayer.allLocked = false;
+    } catch (e) {}
   `);
   await pause(100);
 
-  // 5. Add a "Reveal All" layer mask
+  // 5. Add a "Reveal All" layer mask; enlarge canvas if the mask is
+  // bigger than it (centered resize matches the mask's symmetric padding)
   await runScript(`
     var desc = new ActionDescriptor();
     desc.putClass(charIDToTypeID("Nw  "), charIDToTypeID("Chnl"));
@@ -371,6 +405,7 @@ async function applyAsMask(maskBuffer, origDocName, origLayerName) {
     desc.putReference(charIDToTypeID("At  "), ref);
     desc.putEnumerated(charIDToTypeID("Usng"), charIDToTypeID("UsrM"), charIDToTypeID("RvlA"));
     executeAction(charIDToTypeID("Mk  "), desc, DialogModes.NO);
+    ${needResize ? `app.activeDocument.resizeCanvas(${maskW}, ${maskH});` : ""}
   `);
   await pause(100);
 
@@ -397,6 +432,7 @@ async function applyAsMask(maskBuffer, origDocName, origLayerName) {
     var desc = new ActionDescriptor();
     desc.putReference(charIDToTypeID("null"), ref);
     executeAction(charIDToTypeID("slct"), desc, DialogModes.NO);
+    ${needResize ? `app.activeDocument.resizeCanvas(${dims.docW}, ${dims.docH});` : ""}
   `);
   await pause(100);
 }
