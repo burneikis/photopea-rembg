@@ -4,8 +4,14 @@
 "use strict";
 
 // ── Model registry ───────────────────────────────────────────
-// Sources: rembg's GitHub release assets (CORS-enabled).
+// Downloads go through the local server's /model/<name> proxy because
+// GitHub release assets do not send CORS headers. `url` is only used as
+// the Cache API key / upstream reference.
 const REMBG_BASE = "https://github.com/danielgatis/rembg/releases/download/v0.0.0/";
+
+function modelFetchURL(name) {
+  return new URL("model/" + name, window.location.href).href;
+}
 
 const MODELS = {
   "u2net": {
@@ -67,7 +73,7 @@ const MODELS = {
 };
 
 // ── ORT environment setup ────────────────────────────────────
-ort.env.wasm.wasmPaths = "vendor/";
+ort.env.wasm.wasmPaths = new URL("vendor/", window.location.href).href;
 // Plugin iframe has no cross-origin isolation -> no SharedArrayBuffer.
 ort.env.wasm.numThreads = 1;
 
@@ -105,12 +111,16 @@ async function clearModelCache() {
  */
 async function fetchModel(name, onProgress) {
   const url = MODELS[name].url;
-  const cache = await caches.open(MODEL_CACHE);
+  let cache = null;
+  try {
+    cache = await caches.open(MODEL_CACHE);
+    const cached = await cache.match(url);
+    if (cached) return await cached.arrayBuffer();
+  } catch (e) {
+    console.warn("Cache API unavailable:", e);
+  }
 
-  const cached = await cache.match(url);
-  if (cached) return await cached.arrayBuffer();
-
-  const resp = await fetch(url);
+  const resp = await fetch(modelFetchURL(name));
   if (!resp.ok) throw new Error(`Model download failed: ${resp.status} ${resp.statusText}`);
 
   const total = parseInt(resp.headers.get("Content-Length") || "0", 10);
@@ -129,13 +139,14 @@ async function fetchModel(name, onProgress) {
   for (const c of chunks) { buffer.set(c, off); off += c.length; }
 
   try {
-    await cache.put(url, new Response(buffer.buffer.slice(0), {
+    if (cache) await cache.put(url, new Response(buffer.buffer.slice(0), {
       headers: { "Content-Type": "application/octet-stream" },
     }));
   } catch (e) {
     console.warn("Failed to cache model:", e);
   }
   return buffer.buffer;
+  // Note: keep MODELS[...].url in sync with serve.py MODEL_URLS.
 }
 
 // ── Session management ───────────────────────────────────────

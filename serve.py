@@ -11,6 +11,19 @@ import os
 import ssl
 import subprocess
 import sys
+import urllib.request
+
+# Upstream model URLs, proxied via /model/<name> because GitHub release
+# assets do not send CORS headers.
+MODEL_URLS = {
+    "u2net": "https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net.onnx",
+    "u2netp": "https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx",
+    "u2net_human_seg": "https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net_human_seg.onnx",
+    "silueta": "https://github.com/danielgatis/rembg/releases/download/v0.0.0/silueta.onnx",
+    "isnet-general-use": "https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx",
+    "isnet-anime": "https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-anime.onnx",
+    "bria-rmbg": "https://huggingface.co/briaai/RMBG-1.4/resolve/main/onnx/model.onnx",
+}
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PLUGIN_DIR = os.path.join(BASE_DIR, "plugin")
@@ -38,6 +51,38 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def log_message(self, fmt, *args):
         pass  # quiet
+
+    def do_GET(self):
+        if self.path.startswith("/model/"):
+            return self.proxy_model(self.path[len("/model/"):])
+        return super().do_GET()
+
+    def proxy_model(self, name):
+        url = MODEL_URLS.get(name)
+        if not url:
+            self.send_error(404, "Unknown model")
+            return
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "photopea-rembg"})
+            with urllib.request.urlopen(req, timeout=60) as upstream:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                length = upstream.headers.get("Content-Length")
+                if length:
+                    self.send_header("Content-Length", length)
+                self.end_headers()
+                while True:
+                    chunk = upstream.read(256 * 1024)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+        except BrokenPipeError:
+            pass
+        except Exception as e:
+            try:
+                self.send_error(502, f"Upstream fetch failed: {e}")
+            except Exception:
+                pass
 
 
 def ensure_cert():

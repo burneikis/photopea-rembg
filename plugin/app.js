@@ -207,11 +207,14 @@ async function removeBackground() {
         var doc = app.activeDocument;
         var layer = doc.activeLayer;
         var tmpDoc = app.documents.add(doc.width, doc.height, doc.resolution, "rembg_tmp");
-        app.activeDocument = tmpDoc;
-        tmpDoc.activeLayer.remove();
         app.activeDocument = doc;
         layer.duplicate(tmpDoc, ElementPlacement.INSIDE);
         app.activeDocument = tmpDoc;
+        // Remove the placeholder layer created by documents.add (must not
+        // be the only layer, so do it after duplicating).
+        if (tmpDoc.layers.length > 1) {
+          tmpDoc.layers[tmpDoc.layers.length - 1].remove();
+        }
       `);
       usingWorkingDoc = true;
     } else if (!maskMode) {
