@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>rembg – Remove Background</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600&display=swap');
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: "Open Sans", "Segoe UI", sans-serif;
+      background: #474747;
+      color: #d5d5d5;
+      padding: 10px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-size: 13px;
+    }
+
+    h2 {
+      font-size: 13px;
+      font-weight: 600;
+      color: #d5d5d5;
+      padding-bottom: 4px;
+      border-bottom: 1px solid #252525;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .icon { width: 16px; height: 16px; flex-shrink: 0; }
+
+    .field { display: flex; flex-direction: column; gap: 3px; }
+
+    label { font-size: 11px; color: #999; }
+
+    input[type="color"] {
+      background: #252525;
+      border: 1px solid #252525;
+      border-radius: 3px;
+      color: #d5d5d5;
+      padding: 4px 6px;
+      font-size: 13px;
+    }
+
+    .section {
+      border-top: 1px solid #252525;
+      padding-top: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .section-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: #999;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .color-row { display: flex; align-items: center; gap: 8px; }
+
+    .color-row input[type="color"] {
+      width: 28px;
+      height: 24px;
+      padding: 1px;
+      cursor: pointer;
+      border: 1px solid #252525;
+      border-radius: 3px;
+    }
+
+    .collapsible { overflow: hidden; max-height: 0; transition: max-height 0.3s ease; }
+    .collapsible.open { max-height: 500px; }
+
+    select {
+      background: #252525;
+      border: 1px solid #252525;
+      border-radius: 3px;
+      color: #d5d5d5;
+      padding: 4px 6px;
+      font-size: 13px;
+      font-family: "Open Sans", "Segoe UI", sans-serif;
+    }
+
+    select:focus { outline: none; border-color: #3482f6; }
+
+    .toggle-row { display: flex; align-items: center; gap: 6px; }
+
+    .toggle-row label {
+      font-size: 13px;
+      color: #d5d5d5;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .toggle { position: relative; width: 32px; height: 18px; flex-shrink: 0; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+
+    .toggle .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: #252525;
+      border-radius: 9px;
+      transition: background 0.2s;
+    }
+
+    .toggle .slider::before {
+      content: "";
+      position: absolute;
+      width: 12px;
+      height: 12px;
+      left: 3px;
+      bottom: 3px;
+      background: #999;
+      border-radius: 50%;
+      transition: transform 0.2s, background 0.2s;
+    }
+
+    .toggle input:checked + .slider { background: #3482f6; }
+    .toggle input:checked + .slider::before { transform: translateX(14px); background: #fff; }
+
+    button {
+      background: #252525;
+      color: #d5d5d5;
+      border: 1px solid #3482f6;
+      border-radius: 3px;
+      padding: 6px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: "Open Sans", "Segoe UI", sans-serif;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    button:hover:not(:disabled) { background: #3482f6; color: #fff; }
+
+    button:disabled {
+      background: #333;
+      border-color: #555;
+      color: #777;
+      cursor: not-allowed;
+    }
+
+    button.secondary {
+      border-color: #555;
+      font-weight: 400;
+      padding: 3px 8px;
+      font-size: 11px;
+    }
+    button.secondary:hover:not(:disabled) { background: #555; color: #fff; }
+
+    #status { font-size: 11px; color: #999; min-height: 16px; }
+    #status.error { color: #ff6b6b; }
+    #status.success { color: #69db7c; }
+
+    #progress-wrap {
+      display: none;
+      background: #252525;
+      border-radius: 3px;
+      height: 6px;
+      overflow: hidden;
+    }
+
+    #progress-bar {
+      height: 100%;
+      width: 0%;
+      background: #3482f6;
+      transition: width 0.15s ease;
+    }
+
+    .meta-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 10px;
+      color: #777;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border: 2px solid #555;
+      border-top-color: #d5d5d5;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      vertical-align: middle;
+      margin-right: 4px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+  <h2><svg class="icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="4.5" r="2.5" fill="#d5d5d5"/><path d="M4 12.5c0-2.2 1.8-4 4-4s4 1.8 4 4" stroke="#d5d5d5" stroke-width="1.5" stroke-linecap="round"/><rect x="0.75" y="0.75" width="14.5" height="14.5" rx="2" stroke="#3482f6" stroke-width="1" stroke-dasharray="2 1.5"/></svg> Remove Background</h2>
+
+  <div class="field">
+    <label for="model">Model</label>
+    <select id="model"></select>
+  </div>
+
+  <div class="field">
+    <label for="mode">Apply to</label>
+    <select id="mode">
+      <option value="layer">Active Layer</option>
+      <option value="document">Entire Document</option>
+    </select>
+  </div>
+
+  <div class="toggle-row">
+    <label class="toggle">
+      <input type="checkbox" id="mask-mode" checked>
+      <span class="slider"></span>
+    </label>
+    <label for="mask-mode">Mask mode (apply as layer mask)</label>
+  </div>
+
+  <!-- Advanced Options -->
+  <div class="section">
+    <span class="section-title">Advanced</span>
+
+    <div class="toggle-row">
+      <label class="toggle">
+        <input type="checkbox" id="post-process" checked>
+        <span class="slider"></span>
+      </label>
+      <label for="post-process">Post-process mask (smoother edges)</label>
+    </div>
+
+    <!-- Background Color -->
+    <div>
+      <div class="toggle-row">
+        <label class="toggle">
+          <input type="checkbox" id="bgcolor-enable" onchange="document.getElementById('bgcolor-options').classList.toggle('open', this.checked)">
+          <span class="slider"></span>
+        </label>
+        <label for="bgcolor-enable">Replace background with color</label>
+      </div>
+      <div id="bgcolor-options" class="collapsible">
+        <div class="color-row" style="margin-top:6px">
+          <input type="color" id="bgcolor-picker" value="#ffffff">
+          <label style="font-size:13px;color:#ccc">Background color</label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <button id="btn-remove" onclick="removeBackground()">Remove Background</button>
+
+  <div id="progress-wrap"><div id="progress-bar"></div></div>
+  <div id="status"></div>
+
+  <div class="meta-row">
+    <span>Engine: <span id="ep-indicator">…</span></span>
+    <button class="secondary" onclick="clearCache()">Clear model cache</button>
+  </div>
+
+  <script src="vendor/ort.webgpu.min.js"></script>
+  <script src="inference.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

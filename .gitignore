@@ -1,0 +1,5 @@
+.certs/
+.server.pid
+.server.log
+__pycache__/
+/plugin/vendor
