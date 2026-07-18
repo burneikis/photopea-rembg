@@ -90,13 +90,17 @@ def ensure_cert():
     if os.path.exists(CERT_FILE) and os.path.exists(KEY_FILE):
         return
     print("Generating self-signed certificate...")
+    san = "DNS:localhost,IP:127.0.0.1"
+    extra = os.environ.get("CERT_SAN_EXTRA", "").strip()
+    if extra:
+        san += "," + extra
     subprocess.run(
         [
             "openssl", "req", "-x509", "-newkey", "rsa:2048",
             "-keyout", KEY_FILE, "-out", CERT_FILE,
             "-days", "3650", "-nodes",
             "-subj", "/CN=localhost",
-            "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1",
+            "-addext", f"subjectAltName={san}",
         ],
         check=True,
         capture_output=True,
@@ -106,11 +110,12 @@ def ensure_cert():
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=7001)
+    parser.add_argument("--host", default="127.0.0.1")
     args = parser.parse_args()
 
     ensure_cert()
 
-    httpd = http.server.ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    httpd = http.server.ThreadingHTTPServer((args.host, args.port), Handler)
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.load_cert_chain(CERT_FILE, KEY_FILE)
     httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)

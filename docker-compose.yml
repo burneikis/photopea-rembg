@@ -1,0 +1,12 @@
+services:
+  photopea-rembg:
+    build: .
+    container_name: photopea-rembg
+    ports:
+      - "7001:7001"
+    environment:
+      # Extra names/IPs for the self-signed cert; set in .env (gitignored)
+      CERT_SAN_EXTRA: "${CERT_SAN_EXTRA:-}"
+    volumes:
+      - ./certs:/app/.certs
+    restart: unless-stopped
